@@ -4,6 +4,7 @@ require "set"
 
 require "test_similarity/version"
 require "test_similarity/minitest"
+require "test_similarity/railtie" if defined?(Rails::Railtie)
 
 module TestSimilarity
   class << self

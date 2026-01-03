@@ -90,3 +90,37 @@ Example:
 UserTest-test_invalid_email.json
 UserTest-test_blank_email.json
 ```
+
+4. Analyze similarity
+
+After running tests, use the rake task to generate a similarity report:
+
+```
+bundle exec rake test_similarity:report
+```
+
+This calculates Jaccard similarity between all test pairs and shows those above the threshold (default: 80%).
+
+To specify a custom threshold (e.g., 70%):
+
+```
+bundle exec rake test_similarity:report[70]
+```
+
+To clear recorded data:
+
+```
+bundle exec rake test_similarity:clear
+```
+
+## Configuration
+
+```ruby
+# test/test_helper.rb
+
+# Filter which paths are recorded (default: /app/)
+TestSimilarity.path_filter = %r{/app/}
+
+# Change output directory (default: tmp/test_similarity)
+TestSimilarity.output_dir = "tmp/test_similarity"
+```
