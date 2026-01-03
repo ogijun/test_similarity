@@ -22,9 +22,13 @@ module TestSimilarity
       TestSimilarity.output_dir = @original_output_dir
     end
 
-    def write_test_data(test_class, test_name, signature)
+    def write_test_data(test_class, test_name, signature, file: nil, line: nil)
+      test_info = { class: test_class, name: test_name }
+      test_info[:file] = file if file
+      test_info[:line] = line if line
+
       payload = {
-        test: { class: test_class, name: test_name },
+        test: test_info,
         signature: signature.to_a.sort,
         signature_size: signature.size
       }

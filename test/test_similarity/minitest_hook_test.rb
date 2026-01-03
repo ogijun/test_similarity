@@ -34,16 +34,13 @@ class MinitestHookTest < TestSimilarity::TestCase
   end
 
   def test_hook_records_method_calls
-    # Create a test class that uses the hook
+    # Create a test class that uses the hook with an actual test method
     test_class = Class.new(Minitest::Test) do
       prepend TestSimilarity::MinitestHook
 
-      define_method(:name) { "test_sample" }
-
-      define_method(:run) do
+      define_method(:test_sample) do
         user = SampleApp::User.new
         user.validate
-        super()
       end
     end
 
@@ -63,6 +60,10 @@ class MinitestHookTest < TestSimilarity::TestCase
     assert_equal "SampleTest", data[:test][:class]
     assert_equal "test_sample", data[:test][:name]
 
+    # Check that source location is recorded
+    assert data[:test][:file], "Expected file path to be recorded"
+    assert data[:test][:line], "Expected line number to be recorded"
+
     signature = data[:signature]
     assert_includes signature, "SampleApp::User#validate"
     assert_includes signature, "SampleApp::User#check_email"
@@ -77,12 +78,9 @@ class MinitestHookTest < TestSimilarity::TestCase
     test_class = Class.new(Minitest::Test) do
       prepend TestSimilarity::MinitestHook
 
-      define_method(:name) { "test_filtered" }
-
-      define_method(:run) do
+      define_method(:test_filtered) do
         user = SampleApp::User.new
         user.validate
-        super()
       end
     end
 

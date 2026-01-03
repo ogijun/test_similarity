@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module TestSimilarity
   module MinitestHook
     def run
@@ -13,7 +15,8 @@ module TestSimilarity
       result = super
       tp.disable
 
-      TestSimilarity.write(self, trace)
+      location = method(name)&.source_location
+      TestSimilarity.write(self, trace, location: location)
 
       result
     end
