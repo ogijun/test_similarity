@@ -113,6 +113,35 @@ To clear recorded data:
 bundle exec rake test_similarity:clear
 ```
 
+5. Check a specific test
+
+To see which existing tests are similar to a specific test (useful when adding new tests):
+
+```
+bundle exec rake test_similarity:check[UserTest#test_invalid_email]
+```
+
+This shows similar tests with a diff of what methods each test uniquely calls:
+
+```
+Similar tests for: UserTest#test_invalid_email
+============================================================
+
+92.3% similar: UserTest#test_blank_email
+------------------------------------------------------------
+  Only in test_invalid_email:
+    - EmailValidator#format_check
+  Only in test_blank_email:
+    - EmailValidator#presence_check
+  Common: 12 method(s)
+```
+
+To specify a custom threshold (default: 50%):
+
+```
+bundle exec rake test_similarity:check[UserTest#test_invalid_email,70]
+```
+
 ## Configuration
 
 ```ruby
