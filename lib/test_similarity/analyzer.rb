@@ -7,6 +7,8 @@ module TestSimilarity
     def initialize(dir = TestSimilarity.output_dir)
       @dir = dir
       @data = load_data
+      @similarities_cache = {}
+      @best_matches_cache = nil
     end
 
     def summary(threshold: 0.8)
@@ -21,7 +23,12 @@ module TestSimilarity
       end.sort
 
       avg = max_similarities.sum / max_similarities.size
-      median = max_similarities[max_similarities.size / 2]
+      median = if max_similarities.size.odd?
+        max_similarities[max_similarities.size / 2]
+      else
+        mid = max_similarities.size / 2
+        (max_similarities[mid - 1] + max_similarities[mid]) / 2.0
+      end
       max = max_similarities.last
 
       # Find clusters
@@ -70,23 +77,7 @@ module TestSimilarity
     end
 
     def similarities(threshold: 0.8)
-      results = []
-
-      tests = data.keys
-      tests.each_with_index do |a, i|
-        tests[(i + 1)..].each do |b|
-          score = jaccard(data[a][:signature], data[b][:signature])
-          next if score < threshold
-
-          results << {
-            test_a: a,
-            test_b: b,
-            score: score
-          }
-        end
-      end
-
-      results.sort_by { |r| -r[:score] }
+      @similarities_cache[threshold] ||= compute_similarities(threshold)
     end
 
     def report(threshold: 0.8)
@@ -270,6 +261,40 @@ module TestSimilarity
       result
     end
 
+    def compute_similarities(threshold)
+      results = []
+
+      tests = data.keys
+      tests.each_with_index do |a, i|
+        tests[(i + 1)..].each do |b|
+          score = jaccard(data[a][:signature], data[b][:signature])
+          next if score < threshold
+
+          results << { test_a: a, test_b: b, score: score }
+        end
+      end
+
+      results.sort_by { |r| -r[:score] }
+    end
+
+    def compute_best_matches
+      result = {}
+
+      tests = data.keys
+      tests.each_with_index do |a, i|
+        tests.each_with_index do |b, j|
+          next if i == j
+
+          score = jaccard(data[a][:signature], data[b][:signature])
+          if result[a].nil? || score > result[a][:score]
+            result[a] = { test: b, score: score }
+          end
+        end
+      end
+
+      result
+    end
+
     def format_location(test_id)
       info = data[test_id]
       return nil unless info && info[:source_file]
@@ -339,19 +364,8 @@ module TestSimilarity
     def find_best_match(test_id)
       return nil unless data.key?(test_id)
 
-      target = data[test_id][:signature]
-      best = nil
-
-      data.each do |id, info|
-        next if id == test_id
-
-        score = jaccard(target, info[:signature])
-        if best.nil? || score > best[:score]
-          best = { test: id, score: score }
-        end
-      end
-
-      best
+      @best_matches_cache ||= compute_best_matches
+      @best_matches_cache[test_id]
     end
 
     def cluster_common_methods(cluster)
