@@ -408,8 +408,13 @@ module TestSimilarity
       data.keys.each { |t| parent[t] = t }
 
       find = ->(x) {
-        parent[x] = find.call(parent[x]) if parent[x] != x
-        parent[x]
+        root = x
+        root = parent[root] while parent[root] != root
+        # Path compression
+        while parent[x] != root
+          parent[x], x = root, parent[x]
+        end
+        root
       }
 
       union = ->(x, y) {
