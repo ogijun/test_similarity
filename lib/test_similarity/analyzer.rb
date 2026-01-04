@@ -9,6 +9,66 @@ module TestSimilarity
       @data = load_data
     end
 
+    def summary(threshold: 0.8)
+      return nil if data.empty?
+
+      pairs = similarities(threshold: threshold)
+
+      # Calculate max similarity for each test
+      max_similarities = data.keys.map do |test_id|
+        best = find_best_match(test_id)
+        best ? best[:score] : 0.0
+      end.sort
+
+      avg = max_similarities.sum / max_similarities.size
+      median = max_similarities[max_similarities.size / 2]
+      max = max_similarities.last
+
+      # Find clusters
+      clusters = find_clusters(threshold: threshold)
+      largest_cluster = clusters.map(&:size).max || 0
+
+      # Concentration: what % of high-similarity pairs do top 20% of tests account for?
+      concentration = calculate_concentration(pairs, top_percent: 0.2)
+
+      {
+        total_tests: data.size,
+        best_match_avg: avg,
+        best_match_median: median,
+        best_match_max: max,
+        cluster_count: clusters.size,
+        largest_cluster: largest_cluster,
+        concentration: concentration,
+        threshold: threshold
+      }
+    end
+
+    def print_summary(threshold: 0.8)
+      s = summary(threshold: threshold)
+      return if s.nil?
+
+      threshold_pct = (threshold * 100).to_i
+
+      puts "Test Similarity Summary"
+      puts "-" * 23
+      puts "Total tests: #{s[:total_tests]}"
+      puts
+      puts "Best-match similarity:"
+      puts "  avg:    #{s[:best_match_avg].round(2)}"
+      puts "  median: #{s[:best_match_median].round(2)}"
+      puts "  max:    #{s[:best_match_max].round(2)}"
+      puts
+      puts "Similarity clusters (>=#{threshold_pct}%):"
+      puts "  clusters: #{s[:cluster_count]}"
+      puts "  largest:  #{s[:largest_cluster]} tests" if s[:largest_cluster] > 0
+      puts
+      if s[:concentration]
+        puts "Similarity concentration:"
+        puts "  top 20% of tests account for #{s[:concentration]}% of high-similarity pairs"
+        puts
+      end
+    end
+
     def similarities(threshold: 0.8)
       results = []
 
@@ -30,27 +90,36 @@ module TestSimilarity
     end
 
     def report(threshold: 0.8)
-      pairs = similarities(threshold: threshold)
-      threshold_pct = (threshold * 100).to_i
+      print_summary(threshold: threshold)
 
-      if pairs.empty?
-        puts "No test pairs found with similarity >= #{threshold_pct}%"
+      clusters = find_clusters(threshold: threshold)
+
+      if clusters.empty?
+        puts "No similarity clusters found."
         return
       end
 
-      puts "Test Similarity Report (threshold: #{threshold_pct}%)"
-      puts "=" * 60
-      puts
+      puts "Clusters"
+      puts "-" * 8
 
-      pairs.each do |pair|
-        puts "#{(pair[:score] * 100).round(1)}% similar:"
-        puts "  - #{pair[:test_a]}"
-        puts "  - #{pair[:test_b]}"
+      clusters.sort_by { |c| -c.size }.each_with_index do |cluster, i|
         puts
-      end
+        puts "Cluster #{i + 1} (#{cluster.size} tests):"
+        cluster.each do |test_id|
+          loc = format_location(test_id)
+          puts "  #{test_id}"
+          puts "    #{loc}" if loc
+        end
 
-      puts "=" * 60
-      puts "Found #{pairs.size} pair(s) above threshold"
+        # Show common code paths
+        common = cluster_common_methods(cluster)
+        if common.any?
+          puts
+          puts "  Common code paths (#{common.size}):"
+          common.first(10).each { |m| puts "    #{m}" }
+          puts "    ... and #{common.size - 10} more" if common.size > 10
+        end
+      end
     end
 
     def find_similar(test_id, threshold: 0.5)
@@ -92,6 +161,8 @@ module TestSimilarity
         return puts("No recorded tests found in #{@dir}")
       end
 
+      print_summary(threshold: threshold) if format == :text
+
       summaries = data.keys.map { |test_id| { test: test_id, best_match: find_best_match(test_id) } }
       summaries.sort_by! { |s| -(s[:best_match]&.[](:score) || 0) }
       suspicious = summaries.select { |s| (s[:best_match]&.[](:score) || 0) >= threshold }
@@ -132,6 +203,8 @@ module TestSimilarity
     end
 
     def check(test_id, threshold: 0.5, format: :text)
+      print_summary(threshold: threshold) if format == :text
+
       unless data.key?(test_id)
         if format == :json
           return puts(JSON.pretty_generate({ error: "Test not found", test_id: test_id }))
@@ -279,6 +352,65 @@ module TestSimilarity
       end
 
       best
+    end
+
+    def cluster_common_methods(cluster)
+      return [] if cluster.empty?
+
+      signatures = cluster.map { |test_id| data[test_id][:signature] }
+      common = signatures.reduce(:&)
+      common.to_a.sort
+    end
+
+    def calculate_concentration(pairs, top_percent: 0.2)
+      return nil if pairs.empty?
+
+      # Count how many pairs each test appears in
+      test_pair_count = Hash.new(0)
+      pairs.each do |p|
+        test_pair_count[p[:test_a]] += 1
+        test_pair_count[p[:test_b]] += 1
+      end
+
+      # Sort tests by pair count (descending)
+      sorted_tests = test_pair_count.sort_by { |_, count| -count }
+
+      # Top 20% of tests
+      top_count = [(sorted_tests.size * top_percent).ceil, 1].max
+      top_tests = sorted_tests.first(top_count).map(&:first).to_set
+
+      # Count pairs involving top tests
+      pairs_with_top = pairs.count { |p| top_tests.include?(p[:test_a]) || top_tests.include?(p[:test_b]) }
+
+      ((pairs_with_top.to_f / pairs.size) * 100).round(0)
+    end
+
+    def find_clusters(threshold: 0.8)
+      pairs = similarities(threshold: threshold)
+      return [] if pairs.empty?
+
+      # Union-Find
+      parent = {}
+      data.keys.each { |t| parent[t] = t }
+
+      find = ->(x) {
+        parent[x] = find.call(parent[x]) if parent[x] != x
+        parent[x]
+      }
+
+      union = ->(x, y) {
+        px, py = find.call(x), find.call(y)
+        parent[px] = py if px != py
+      }
+
+      pairs.each { |p| union.call(p[:test_a], p[:test_b]) }
+
+      # Group by root
+      groups = Hash.new { |h, k| h[k] = [] }
+      data.keys.each { |t| groups[find.call(t)] << t }
+
+      # Return only clusters with more than 1 member
+      groups.values.select { |g| g.size > 1 }
     end
   end
 end
